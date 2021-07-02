@@ -1,0 +1,232 @@
+---
+title: "City of Milwaukee Library Map"
+author: "Created by Andy Berkhout"
+output:
+  flexdashboard::flex_dashboard:
+    theme: paper
+    orientation: rows
+---
+
+<style>                     
+.navbar {
+  background-color:#005073;
+  border-color:white;
+}
+.navbar-brand {
+color:white!important;
+}
+.navbar-inverse .navbar-nav > li > a:hover,
+.navbar-inverse .navbar-nav > li > a:focus {
+    background-color:#1ebbd7;
+    color: white;
+}
+.navbar-inverse .navbar-nav > .active > a,
+.navbar-inverse .navbar-nav > .active > a:hover,
+.navbar-inverse .navbar-nav > .active > a:focus {
+  color: white;
+  background-color:#107dac;
+}
+</style>  
+
+
+```{r setup, include=FALSE}
+library(dplyr)  
+library(leaflet)  
+library(DT)  
+library(crosstalk) 
+library(plotly)
+library(here)  
+library(tidygeocoder)
+library(janitor)
+
+# read in data and create tidy column names
+
+lib_data <- read.csv(here("mke_library_locations.csv")) %>%
+            clean_names()
+
+# reverse geocode lat and long data to produce zip codes
+
+lib_data_rev_geocode <- lib_data %>%
+  reverse_geocode(
+    lat = latitude, long = longitude, method = "osm",
+    address = address_found, full_results = TRUE
+  ) %>%
+  select(-place_id, -licence, -address_found, -osm_type, -osm_id, -osm_lat, -osm_lon, -house_number, -road, -city, -county, -state, -country, -country_code, -boundingbox, -amenity, -tourism, -building)
+
+# create shared dataset for project based on reverse geocoded data
+
+sd <- SharedData$new(lib_data_rev_geocode)
+```
+
+The Map {data-icon="fa-globe-americas"}
+=====================================  
+
+
+Column {data-width=400}
+-------------------------------------
+
+### Find a Library by Neighborhood or ZIP Code
+
+```{r filters}
+
+filter_select(
+  id = "neighbourhood",
+  label = "Neighborhood",
+  sharedData = sd,
+  group = ~neighbourhood
+)
+
+filter_select(
+  id = "postcode",
+  label = "ZIP Code",
+  sharedData = sd,
+  group = ~postcode,
+)
+
+```
+### Library Map
+    
+```{r map}
+
+sd %>% 
+  leaflet::leaflet() %>%
+  leaflet::addProviderTiles(providers$OpenStreetMap) %>%
+  leaflet::addAwesomeMarkers(
+  popup = ~paste0("<b>",branch_name, " Branch", "</b>","<br>",
+                   "<br>",
+                   "Address: ", address,", ", postcode, "</i>","<br>",
+                   "Neighborhood: ", neighbourhood,"<br>",
+                   "<br>",
+                   "<b>", "Hours: ","</b>",
+                   "<br>",
+                   "Monday: ", monday_opens," - ", monday_closes, "<br>",
+                   "Tuesday: ", tuesday_opens," - ", tuesday_closes, "<br>",
+                   "Wednesday: ", wednesday_opens," - ", wednesday_closes, "<br>",
+                   "Thursday: ", thursday_opens," - ", thursday_closes, "<br>",
+                   "Friday: ", friday_opens," - ", friday_closes, "<br>",
+                   "Saturday: ", saturday_opens," - ", sunday_closes, "<br>",
+                   "Sunday: ", sunday_opens),
+           icon = awesomeIcons(
+      library = "ion",
+      icon = ifelse(
+        test = lib_data_rev_geocode$branch_name == "Central",
+        yes = "ion-android-star-outline",
+        no = "ion-android-radio-button-off"
+      ),
+      iconColor = "white",
+      markerColor = ifelse(
+        test = lib_data_rev_geocode$branch_name == "Central",
+        yes = "red",
+        no = "blue"))
+   ) %>%
+  leaflet::addMeasure() 
+  
+
+   
+
+```
+
+
+
+Column {data-width=600}
+-------------------------------------
+    
+### Save or Print Your List
+    
+```{r datatable}
+
+sd %>% 
+  DT::datatable(
+    filter = "top",  # allows filtering on each column
+    extensions = c(
+      "Buttons",  # add download buttons, etc
+      "Scroller"# for scrolling down the rows rather than pagination
+     ),
+    rownames = FALSE,  # remove rownames
+    style = "bootstrap",
+    class = "compact",
+    width = "100%",
+    options = list(
+      dom = "Blrtip",  # specify content (search box, etc)
+      deferRender = TRUE,
+      fixedHeader = TRUE,
+      scrollY = 265,
+      scroller = TRUE,
+      columnDefs = list(
+        list(
+          visible = FALSE,
+          targets = c(2:3)
+          )
+      ), 
+      buttons = list(
+        list(extend = 'excel', text = "Export (Excel)"),# download as .xlsx
+        list(extend = 'pdf', text = "Export (PDF)", orientation='landscape', pageSize='LEGAL'),
+        list(extend = 'copy', text = "Copy to Clipboard"),
+        list(extend = 'print', orientation='landscape', pageSize='LEGAL') #print
+      )
+    ),
+    colnames = c(
+      "Branch Name" = "branch_name",
+      "Address" = "address",
+      "Latitude" = "latitude",
+      "Longitude" = "longitude",
+      "Monday Open Time" = "monday_opens",
+      "Monday Close Time" = "monday_closes",
+      "Tuesday Open Time" = "tuesday_opens",
+      "Tuesday Close Time" = "tuesday_closes",
+      "Wednesday Open Time" = "wednesday_opens",
+      "Wednesday Close Time" = "wednesday_closes",
+      "Thursday Open Time" = "thursday_opens",
+      "Thursday Close Time" = "thursday_closes",
+      "Friday Open Time" = "friday_opens",
+      "Friday Close Time" = "friday_closes",
+      "Saturday Open Time" = "saturday_opens",
+      "Saturday Close Time" = "saturday_closes",
+      "Sunday Open Time" = "sunday_opens",
+      "Sunday Close Time" = "sunday_closes",
+      "Neighborhood" = "neighbourhood",
+      "ZIP Code" = "postcode"
+    )
+  )
+
+```
+
+
+
+About this Project {data-orientation=rows data-icon="fa-info-circle"}
+===================================== 
+
+  
+### About this Map
+
+**Why I Made This Project**
+
+I enjoy going to libraries when I am visiting a city and I usually start by learning about the neighborhoods where they are located. I found a list of branches on the official MPL website, but it didn't include the option to filter branches by contextual information like neighborhood or ZIP code.  This projects allows someone to filter library branches by those criteria, view them on a map, and see a list of tabular data about them.  Users with limited internet access have the option of saving or printing their filtered list for later use. 
+
+**What I Learned**
+
+This map was a fun way to create a flexdashboard project that combines tabular and geographic data in a format in which users can easily interact on desktop and mobile devices.  I was also able to gain some familiarity with Milwaukee's neighborhoods and the city's open data system.  
+
+### Technical Information
+
+**Central Branch**
+
+When possible, I also like to visit the main branch of a city's library system because they often have unique architectural features.  Simple conditional logic was used to mark the Central Branch with a red star icon so it stands out on the map.  
+
+**Library Data**
+
+Library data was retrieved from the [Milwaukee OpenData](https://data.milwaukee.gov/) website.
+
+**Geocoding**
+
+ZIP codes and additional metadata were retrieved using Jesse Cambon's [tidygeocoder](https://jessecambon.github.io/tidygeocoder/) package.  
+
+**Inspiration**
+
+This project was inspired by Matt Dray's [crosstalk demonstration](https://github.com/matt-dray/earl18-crosstalk).  
+
+### Disclaimer
+
+This map was created for demonstration purposes and based on the most recent available data at the time of production.  Please consult your library branch for questions about days of operation and hours.  
+
+
